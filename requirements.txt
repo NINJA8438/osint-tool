@@ -1,0 +1,11 @@
+# Requirements para OSINT Tool com Tor
+requests==2.31.0            # Para requisições web via Tor
+stem==1.8.2                 # Controle do daemon Tor
+dnspython==2.4.2            # Resolução DNS anônima
+pysocks==1.7.1              # Conexões SOCKS para Tor
+python-whois==0.8.0         # Consultas WHOIS
+tqdm==4.66.1                # Barra de progresso (opcional)
+colorama==0.4.6             # Saída colorida (opcional)
+
+# Bibliotecas padrão do Python (não precisam ser instaladas)
+# socket, urllib.parse, json, time, concurrent.futures

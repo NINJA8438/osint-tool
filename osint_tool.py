@@ -11,17 +11,6 @@ import socks
 import concurrent.futures
 import json
 
-# Configurar proxy Tor
-socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", 9050)
-socket.socket = socks.socksocket
-
-def renew_tor_connection():
-    """Renovar circuito Tor para novo endereço IP"""
-    with Controller.from_port(port=9051) as controller:
-        controller.authenticate(password="")
-        controller.signal(Signal.NEWNYM)
-        time.sleep(5)  # Esperar circuito ser estabelecido
-
 def get_tor_session():
     """Criar sessão requests com proxy Tor"""
     session = requests.Session()
@@ -30,6 +19,19 @@ def get_tor_session():
         'https': 'socks5h://127.0.0.1:9050'
     }
     return session
+
+def renew_tor_connection():
+    """Renovar circuito Tor para novo endereço IP"""
+    print("\n[+] Renovando circuito Tor...")
+    try:
+        # Conexão direta sem proxy SOCKS
+        with Controller.from_port(address="127.0.0.1", port=9051) as controller:
+            controller.authenticate()
+            controller.signal(Signal.NEWNYM)
+            time.sleep(5)  # Esperar circuito ser estabelecido
+        print("[+] Circuito Tor renovado com sucesso!")
+    except Exception as e:
+        print(f"[!] Erro ao renovar circuito Tor: {e}")
 
 def banner():
     print("""
@@ -73,17 +75,34 @@ def dns_lookup(domain):
     except Exception as e:
         print(f"Erro: {e}")
 
+def get_subdomains_from_file(wordlist="subdomains.txt"):
+    default_subs = ["www", "mail", "ftp", "webmail", "admin", "api", 
+                   "vpn", "ns1", "ns2", "test", "portal", "cpanel"]
+    
+    if os.path.exists(wordlist):
+        with open(wordlist) as f:
+            return [line.strip() for line in f if line.strip()]
+    return default_subs
+
 def subdomain_enum(domain, session):
     print("\n[+] Subdomain Enumeration via Tor...")
-    subdomains = ["www", "mail", "ftp", "admin", "api", "vpn", "portal"]
-    for sub in subdomains:
+    subdomains = get_subdomains_from_file()
+    
+    def check_subdomain(sub):
         full_domain = f"{sub}.{domain}"
         try:
-            # Tentar conexão TCP via Tor
+            # Resolução DNS via Tor
             ip = socket.gethostbyname(full_domain)
-            print(f"{full_domain} -> {ip}")
+            return full_domain, ip
         except:
-            pass
+            return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+        futures = {executor.submit(check_subdomain, sub): sub for sub in subdomains}
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            if result:
+                print(f"{result[0]} -> {result[1]}")
 
 def leakix_lookup(domain, session):
     print("\n[+] LeakIX Search via Tor...")
@@ -127,9 +146,8 @@ def web_scan(domain, session):
     except Exception as e:
         print(f"Erro: {e}")
 
-def check_tor_connection():
+def check_tor_connection(session):
     """Verificar se a conexão Tor está funcionando"""
-    session = get_tor_session()
     try:
         response = session.get("https://check.torproject.org/api/ip", timeout=10)
         data = response.json()
@@ -140,22 +158,22 @@ def check_tor_connection():
         else:
             print("\n[!] AVISO: Não conectado via Tor!")
             return False
-    except:
-        print("\n[!] ERRO: Falha na conexão com a rede Tor")
+    except Exception as e:
+        print(f"\n[!] ERRO: Falha na verificação Tor: {e}")
         return False
 
 def main():
     banner()
     
+    # Iniciar sessão Tor
+    session = get_tor_session()
+    
     # Verificar conexão Tor
-    if not check_tor_connection():
+    if not check_tor_connection(session):
         print("Configure o Tor antes de continuar")
         print("Instale com: sudo apt install tor")
         print("Inicie com: sudo systemctl start tor")
         return
-    
-    renew_tor_connection()
-    session = get_tor_session()
     
     domain = input("\nDigite o domínio alvo: ").strip()
     if not domain:
@@ -175,7 +193,11 @@ def main():
     subdomain_enum(domain_name, session)
     leakix_lookup(domain_name, session)
     
+    # Renovar circuito Tor ao final
+    renew_tor_connection()
+    
     print("\n[+] Reconhecimento completo!")
 
 if __name__ == "__main__":
     main()
+    
